@@ -1,0 +1,87 @@
+---
+title: "Checkpointing Is a Distributed Systems Problem"
+description: "A checkpoint is not a folder of weights. It is a contract between training, storage, orchestration, and every future resume."
+pubDate: 2026-02-20
+tags: ["training", "infrastructure", "distributed-systems"]
+draft: false
+---
+
+A checkpoint is not a folder full of weights.
+
+It is a promise that the next run can trust what the last run left behind. Once
+you say it that way, checkpointing stops looking like file I/O and starts
+looking like a distributed systems problem.
+
+Which is exactly where the wheels come off if you treat it casually.
+
+## Partial writes are normal
+
+The unhappy path is not rare.
+
+Workers get preempted. Object storage gets slow. A node dies after writing model
+weights but before writing optimizer state. The scheduler retries a job while the
+old attempt is still cleaning up. Somebody points a resume job at the newest
+prefix because it "looked complete."
+
+That is how a quiet storage detail becomes a bad training run.
+
+The first rule is simple: bytes existing is not the same thing as a checkpoint
+being committed.
+
+## Commit small, write big
+
+The data can be large and slow. The commit marker should be small and boring.
+
+A pattern I trust looks like this:
+
+1. write checkpoint data under an attempt-scoped prefix
+2. write a manifest that names every required object and checksum
+3. validate the manifest from a reader path
+4. publish one atomic committed marker
+
+Readers ignore everything without the committed marker. Cleanup can be lazy.
+Retention can be policy-driven. The resume path stays plain.
+
+```python
+def choose_resume_checkpoint(refs):
+    committed = [ref for ref in refs if ref.state == "committed"]
+    if not committed:
+        raise RuntimeError("no committed checkpoint available")
+    return max(committed, key=lambda ref: ref.step)
+```
+
+There is not much romance in that code. Good. I do not want romance in my resume
+path.
+
+## Lineage matters
+
+A checkpoint should know where it came from.
+
+At minimum:
+
+- run id
+- attempt id
+- global step
+- parent checkpoint
+- training config hash
+- data manifest hash
+- framework and container version
+
+That lineage is what lets you answer whether a later checkpoint is a clean
+continuation, a fork, or a science experiment wearing a production hat.
+
+If lineage is missing, the team will reconstruct it from logs and memory. That
+works until it does not.
+
+## The smell test
+
+The test I use is blunt: can a new engineer resume the right checkpoint without
+asking which folder "looks good"?
+
+If the answer is no, the checkpointing system is not done.
+
+It might work on a good day. It might pass the happy-path demo. But under
+preemption, retry, cleanup, and stale metadata, a checkpoint needs to be more
+than files on disk.
+
+It needs to be a contract.

@@ -1,0 +1,53 @@
+---
+import Base from '../layouts/Base.astro';
+
+Astro.response.status = 404;
+---
+
+<Base
+  title="404"
+  description="The page you were looking for was not found."
+>
+  <section class="not-found">
+    <p class="eyebrow">404</p>
+    <h1>Page not found</h1>
+    <p>
+      This URL does not map to a published note. The post may have moved, stayed
+      a draft, or never existed.
+    </p>
+    <nav aria-label="404 recovery links">
+      <a href="/">Home</a>
+      <a href="/posts/">Posts</a>
+      <a href="/about/">About</a>
+    </nav>
+  </section>
+</Base>
+
+<style>
+  .not-found {
+    padding-top: 2rem;
+  }
+
+  .eyebrow {
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    margin: 0 0 0.75rem;
+  }
+
+  .not-found h1 {
+    margin-top: 0;
+  }
+
+  .not-found p:not(.eyebrow) {
+    color: var(--muted);
+    max-width: 46ch;
+  }
+
+  .not-found nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+    margin-top: 2rem;
+  }
+</style>

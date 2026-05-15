@@ -1,0 +1,162 @@
+---
+title: "A Training Run Ought to Leave Tracks"
+description: "The systems work that matters most in large training runs: every retry, checkpoint, queue, and evaluator should leave enough evidence to explain itself."
+pubDate: 2026-05-15
+tags: ["training", "infrastructure", "llm-systems"]
+draft: false
+---
+
+A training platform earns its keep when a run fails at 2 a.m. and nobody has to
+go hunting through Slack to figure out what happened.
+
+That sounds plain because it is. A lot of ML infrastructure work comes down to
+making the system leave tracks before the wheels come off.
+
+What did we try? Which data snapshot did it see? Which checkpoint is the real
+one? Which retry did real work, and which retry just spent money proving the same
+bad assumption twice?
+
+If the platform cannot answer those questions, the team will answer them by
+memory. That works right up until the person with the memory is asleep,
+unavailable, or wrong.
+
+## Treat the attempt like the receipt
+
+A run is what people talk about in planning meetings. An attempt is what the
+cluster actually did.
+
+That attempt is the receipt. It should say:
+
+- immutable config snapshot
+- resolved data manifest
+- container digest
+- scheduler placement
+- checkpoint lineage
+- evaluator versions
+- termination reason
+
+This is not paperwork. This is how you keep a retry storm from looking like
+progress.
+
+Once those fields are real columns instead of folklore, the platform can answer a
+question worth money:
+
+```sql
+select
+  termination_reason,
+  count(*) as attempts,
+  sum(gpu_seconds) / 3600 as gpu_hours
+from training_attempts
+where model_family = 'reasoning'
+  and started_at >= now() - interval '7 days'
+group by termination_reason
+order by gpu_hours desc;
+```
+
+That query will not win a design award. It will keep an expensive week from
+turning into an expensive month.
+
+The important part is not the SQL. The important part is admitting that "failed"
+is too small a word. Preempted is different from OOM. OOM is different from bad
+input data. Bad input data is different from an evaluator falling over after the
+checkpoint was already good.
+
+## A checkpoint is not just a file
+
+"Write a file every N steps" is fine until the job dies halfway through the
+write, the scheduler resubmits it, and now two workers disagree about where truth
+lives.
+
+In a real training system, checkpointing is a protocol between the trainer,
+storage, scheduler, and orchestrator.
+
+At minimum, I want three states:
+
+1. `writing`: bytes may exist, but readers must ignore them
+2. `committed`: metadata, weights, optimizer state, RNG state, and data cursor
+   are mutually consistent
+3. `superseded`: safe to age out after retention rules and downstream consumers
+   agree
+
+The important move is making the committed marker small and atomic. Everything
+else can be slow, parallel, and boring. Boring is a compliment here.
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class CheckpointRef:
+    run_id: str
+    attempt_id: int
+    step: int
+    object_prefix: str
+    manifest_sha256: str
+
+def resume_target(checkpoints: list[CheckpointRef]) -> CheckpointRef:
+    committed = sorted(checkpoints, key=lambda c: c.step)
+    if not committed:
+        raise RuntimeError("no committed checkpoint found")
+    return committed[-1]
+```
+
+The actual implementation will have leases, object storage quirks, and retention
+rules. Fine. The contract should still fit in your head.
+
+I do not want a clever resume path. I want the resume path that makes corrupted
+checkpoints boring to diagnose.
+
+## Retries are cheap until they are not
+
+Retry is useful right up until it starts setting money on fire.
+
+Every retry should spend from a budget tied to the reason for the retry. Not all
+failures deserve the same second chance.
+
+- Transient infrastructure fault? Retry quickly.
+- Node preempted? Resume from the last committed checkpoint.
+- OOM after a config change? Retry only if the system changed the batch shape,
+  activation checkpointing, or placement.
+- Input schema drift? Stop. Retrying bad data is just wishful thinking with a
+  GPU attached.
+- Evaluator crash? Retry the evaluator, not the training job.
+
+Without reason-aware budgets, retry logic turns defects into background noise.
+The dashboard looks busy. The cluster is just paying the bill.
+
+## Evaluations are part of the run
+
+The training loop does not end because loss went down. I do not trust a run
+until I can connect weights to evals.
+
+For every promoted checkpoint, I want:
+
+- evaluator image digest
+- prompt or task set version
+- decoding parameters
+- judge model and rubric version, if applicable
+- raw outputs, sampled failures, and aggregate metrics
+
+If those are missing, "model quality improved" is just a feeling standing next
+to a chart.
+
+This is where a lot of platforms get soft. The trainer has careful provenance,
+but the eval job is a script with a timestamp and a prayer. Then a week later
+somebody asks why one checkpoint looked better, and the only honest answer is
+"we are not sure."
+
+That answer may be true. It should also be embarrassing enough to fix.
+
+## The smell test
+
+The smell test is simple: pick any failed attempt from last week and ask a new
+engineer to explain it in 15 minutes.
+
+If they can trace config, data, placement, checkpoint, retry history, and eval
+state without private context, the platform is probably in decent shape. It has
+operational memory.
+
+If they need a meeting to learn what happened, that dog will not hunt. The
+system is still keeping its memory in people instead of in the platform.
+
+That is the line I would draw: a training run should leave enough evidence that
+the next engineer can make the right call without knowing the campfire story.

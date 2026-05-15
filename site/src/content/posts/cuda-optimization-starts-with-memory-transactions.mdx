@@ -1,0 +1,100 @@
+---
+title: "Your CUDA Kernel Is Probably Paying a Memory Tax"
+description: "Before touching clever math, make the profiler show that each warp is moving data the way the hardware wants."
+pubDate: 2026-05-01
+tags: ["cuda", "performance", "gpu"]
+draft: false
+---
+
+The fastest CUDA kernel is usually the one that quit being clever and started
+being polite to memory.
+
+That is where I start when a kernel is slow. Not with a clever rewrite. Not with
+some heroic shared-memory plan. First I want to know what memory transactions a
+warp is forcing the hardware to issue.
+
+If the answer is ugly, the rest of the optimization story is already paying a
+tax.
+
+## The code can look innocent
+
+This kind of kernel can make it through review because nothing about it screams
+broken:
+
+```cpp
+__global__ void column_scale(float* y, const float* x, const float* scale,
+                             int rows, int cols) {
+  int row = blockIdx.x * blockDim.x + threadIdx.x;
+  int col = blockIdx.y;
+
+  if (row < rows) {
+    int idx = row * cols + col;
+    y[idx] = x[idx] * scale[col];
+  }
+}
+```
+
+For a fixed `col`, adjacent threads walk memory with a stride of `cols`. If
+`cols` is large, the warp touches addresses that are nowhere near each other.
+The multiply is cheap. The access pattern is where the bill shows up.
+
+The first fix is not fancy. Make adjacent threads touch adjacent elements:
+
+```cpp
+__global__ void contiguous_scale(float* y, const float* x, const float* scale,
+                                 int n, int cols) {
+  int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (idx < n) {
+    int col = idx % cols;
+    y[idx] = x[idx] * scale[col];
+  }
+}
+```
+
+This version gives the coalescer a fighting chance. That is the line I want to
+cross before I start arguing with myself about constant memory, vectorized loads,
+or whether this operation belongs fused into something larger.
+
+Get the boring memory story right first. Boring is usually where the speedup is
+hiding.
+
+## Start with the counters that keep you honest
+
+For a first pass, I care less about theoretical FLOPs than whether the kernel is
+wasting memory bandwidth. Nsight Compute will tell on you:
+
+```bash
+ncu --set full \
+  --metrics gpu__time_duration.sum,dram__bytes.sum,smsp__sass_average_branch_targets_threads_uniform.pct \
+  ./bench_scale
+```
+
+The exact counter set changes with architecture and Nsight version, but the
+workflow does not change much:
+
+- compare requested bytes to DRAM bytes
+- look for low occupancy only after checking memory efficiency
+- verify that the faster kernel produces identical outputs
+- keep the benchmark shape close to the production tensor shape
+
+A benchmark that only proves a toy square matrix got faster is not worth much
+when the production shape is ragged, batched, and living inside a transformer
+block.
+
+## Layout beats heroics
+
+When data layout is under your control, spend effort there first. Padding a row
+or changing a tensor view can beat a heroic kernel rewrite. That is not as fun
+to talk about, but it is usually cheaper insurance.
+
+The hierarchy I use:
+
+1. Make adjacent threads access adjacent memory.
+2. Make the base pointer and stride alignment obvious.
+3. Remove redundant global reads before chasing instruction-level tricks.
+4. Fuse only when the fused kernel has a clear memory story.
+
+The smell test is simple: if I cannot explain the memory transactions, I do not
+trust the speedup. Optimization gets more interesting later. The first win is
+usually making the hardware do fewer embarrassing things.

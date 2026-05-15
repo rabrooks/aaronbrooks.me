@@ -1,0 +1,84 @@
+---
+title: "Prompts Are Release Artifacts"
+description: "If a prompt can change production behavior, it needs versioning, eval gates, rollback, and telemetry keyed to the deployed behavior."
+pubDate: 2026-02-06
+tags: ["llm-systems", "platforms", "production"]
+draft: false
+---
+
+A prompt change is a deploy.
+
+That sounds heavier than most teams want it to sound, but production does not
+care whether the behavior changed because of TypeScript, YAML, or a paragraph
+someone edited in a dashboard.
+
+If the model behaves differently, you shipped something.
+
+## The current prompt is not a release strategy
+
+"Current prompt" is a dangerous phrase. It sounds harmless. It also hides the
+thing you need most when a release goes sideways: which behavior did users
+actually see?
+
+I want a behavior version that names the pieces that matter:
+
+```ts
+type BehaviorVersion = {
+  promptSha: string;
+  model: string;
+  toolSchemaSha: string;
+  retrievalPolicySha: string;
+  safetyPolicySha: string;
+  decoding: {
+    temperature: number;
+    maxOutputTokens: number;
+  };
+};
+```
+
+That tuple is the release. The prompt is only one part of it.
+
+Without that, the incident review turns into campfire stories. Somebody remembers
+a prompt tweak. Somebody else remembers a model alias changing. The dashboard has
+a line going the wrong direction, but nobody can say what users were actually
+running.
+
+## Evals need to block bad changes
+
+I do not need every prompt edit to become a committee meeting. I do need the
+platform to know which evals protect which behavior.
+
+For a production prompt, I want:
+
+- a small fast eval gate for obvious regressions
+- a slower eval set for release candidates
+- sampled production traces reviewed against the new behavior
+- rollback tied to behavior version, not hand-edited text
+
+The evals do not have to be perfect. They have to be stable enough to catch the
+same mistake twice. That is cheap insurance.
+
+## Telemetry should name the behavior
+
+Latency, cost, tool failures, refusal rate, fallback rate, and user-visible
+retries should all be keyed by behavior version.
+
+Otherwise the team ends up asking questions the platform should answer:
+
+- did cost rise because the prompt got longer?
+- did latency rise because retrieval fanout changed?
+- did quality drop because the model changed?
+- did tool errors rise because the schema changed?
+
+If those questions require a meeting, the platform is keeping its receipts in
+people.
+
+## The rule
+
+If a prompt is allowed to affect production behavior, it deserves release
+discipline.
+
+Not ceremony. Discipline.
+
+Version it. Gate it. Observe it. Roll it back without guessing. Anything less is
+just editing production with a nicer text box.

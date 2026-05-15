@@ -1,0 +1,105 @@
+---
+title: "LLM Platforms Need Operational Memory"
+description: "A useful LLM platform remembers prompts, tools, evals, incidents, and cost decisions as production evidence, not scattered anecdotes."
+pubDate: 2026-04-17
+tags: ["llm-systems", "platforms", "production"]
+draft: false
+---
+
+Most LLM platform failures I worry about are memory failures.
+
+Not vector memory. Operational memory.
+
+The platform forgets why a prompt changed. It forgets which judge version
+blessed a release. It forgets that a tool timed out last quarter for the same
+customer shape. It forgets the cost model that made a routing decision look
+reasonable.
+
+Then the team relearns everything through incidents.
+
+That is a rough way to run a railroad.
+
+## Prompts need receipts
+
+If a prompt can change behavior, it needs the same release discipline as code:
+
+- versioned source
+- owner
+- changelog
+- eval gate
+- rollback path
+- production telemetry keyed by version
+
+The useful object is not "the current prompt." That phrase is how people lose
+the thread.
+
+The useful object is the tuple of prompt, model, tool schema, retrieval policy,
+decoding parameters, and safety policy. That tuple is the deployed behavior.
+
+```ts
+type LlmBehaviorVersion = {
+  promptSha: string;
+  model: string;
+  toolSchemaSha: string;
+  retrievalPolicy: string;
+  temperature: number;
+  maxOutputTokens: number;
+  safetyPolicySha: string;
+};
+```
+
+That structure looks pedestrian. Good. It prevents the debugging session where
+somebody says, "it got worse sometime after lunch," and nobody knows which layer
+changed.
+
+## Evals without provenance are screenshots
+
+An eval result without provenance is a screenshot. It might be useful in a
+conversation, but it should not promote a release.
+
+Every aggregate metric should link back to:
+
+- input set version
+- expected output or rubric version
+- judge model, if used
+- sampling parameters
+- raw model outputs
+- failure clusters
+
+The raw outputs matter because aggregate scores hide product defects. A model can
+gain two points overall while getting worse at the one workflow that pays the
+bill.
+
+That is where the wheels come off. The dashboard says green. The customer path
+that matters got worse. Both can be true.
+
+## Tools are part of the model surface
+
+Tool calls are not an implementation detail. They are part of the model's
+behavioral surface area and should be observable as such.
+
+Track tool latency, error rate, schema validation failures, empty results, and
+user-visible recoveries by behavior version.
+
+When an answer is bad, the first question should not be "did the model fail or
+did retrieval fail?" The trace should already show which component made which
+decision with which inputs.
+
+If the trace cannot tell the story, the team will. That story will get a little
+more fictional every time it is retold.
+
+## Cost is a product signal
+
+Cost dashboards are usually built for finance after the fact. LLM platforms need
+cost at decision time.
+
+Routing, context length, retrieval depth, tool fanout, and judge usage are all
+quality decisions with cost attached. If the platform records the decision and
+the reason, teams can tune tradeoffs deliberately instead of discovering them
+three weeks later in the cloud bill.
+
+The practical rule is simple: when a release gets slower, more expensive, or less
+reliable, the platform should be able to explain what changed without a meeting.
+
+If it cannot, you do not have operational memory. You have institutional
+folklore with a nicer UI.

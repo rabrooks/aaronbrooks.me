@@ -1,0 +1,88 @@
+---
+title: "Occupancy Is Usually Not the First Problem"
+description: "Low occupancy can matter, but it is a clue, not a plan. Start with memory behavior, launch shape, and correctness."
+pubDate: 2025-12-12
+tags: ["cuda", "performance", "gpu"]
+draft: false
+---
+
+Occupancy is one of those CUDA numbers that looks like it ought to explain
+everything.
+
+It usually does not.
+
+I have seen slow kernels with healthy occupancy and fast kernels that would make
+an occupancy chart look nervous. The number matters, but it is a symptom. If you
+start there, you can spend a whole afternoon tuning the wrong thing with great
+confidence.
+
+That dog will not hunt.
+
+## First, ask what the warp is doing
+
+Before I care how many warps are resident, I want to know whether the warps that
+do run are doing useful work.
+
+The first pass is plain:
+
+- are adjacent threads touching adjacent memory?
+- are loads aligned enough for the hardware to help?
+- are branches splitting the warp in a hot path?
+- are we reading the same global memory twice?
+- are we benchmarking the production shape or a toy shape?
+
+Low occupancy can hurt. So can making a lot of resident warps wait on bad memory
+accesses. More lanes in traffic do not help much if everybody is driving into a
+ditch.
+
+## A small benchmark can lie cleanly
+
+The trap is a benchmark that is too neat.
+
+Square matrices. Nice powers of two. Warm cache. No ragged batch. No real
+sequence lengths. No upstream layout weirdness. Everything behaves, and the
+kernel looks better than it has any right to look in production.
+
+Then the real workload shows up with awkward shapes and a tensor view that came
+from three layers back, and the profiler starts telling a different story.
+
+I want the benchmark shape to look like the shape that pays the bill.
+
+```bash
+ncu --set full ./bench_kernel \
+  --batch 7 \
+  --seq-len 1536 \
+  --hidden 4096 \
+  --dtype bf16
+```
+
+Those flags are not magic. The point is to make the benchmark uncomfortable in
+the same way production is uncomfortable.
+
+## Occupancy still has a job
+
+Occupancy becomes useful after the basics are accounted for.
+
+If memory transactions look sane, branch behavior is not embarrassing, launch
+overhead is not dominating, and the output is still slow, then I care about what
+is limiting resident warps:
+
+- registers per thread
+- shared memory per block
+- block size
+- instruction latency
+- dependency chains
+
+At that point, occupancy is part of the investigation. It is not the
+investigation.
+
+## The smell test
+
+The rule I use is simple: do not optimize occupancy until you can explain why the
+current warps are slow.
+
+If the memory story is bad, fix that first. If the benchmark shape is fake, fix
+that first. If correctness depends on a quiet assumption about layout, fix that
+first.
+
+Occupancy is a useful counter. It is not a strategy.

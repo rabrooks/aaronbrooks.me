@@ -21,6 +21,9 @@ Thumbs.db
 !.vscode/settings.json
 .idea/
 
+# Local research notes, drafts, and persona material
+research/
+
 # Terraform
 # Note: .terraform.lock.hcl is intentionally NOT ignored — commit it so
 # everyone uses the same provider versions.
