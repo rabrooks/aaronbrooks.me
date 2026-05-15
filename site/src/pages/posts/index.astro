@@ -1,0 +1,36 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import PostList from '../../components/PostList.astro';
+
+const posts = (await getCollection('posts', ({ data }) => !data.draft)).sort(
+  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf(),
+);
+
+const byYear = new Map<number, typeof posts>();
+for (const p of posts) {
+  const y = p.data.pubDate.getFullYear();
+  if (!byYear.has(y)) byYear.set(y, []);
+  byYear.get(y)!.push(p);
+}
+const years = [...byYear.keys()].sort((a, b) => b - a);
+---
+
+<Base
+  title="Posts"
+  description="All posts by Aaron Brooks — ML systems, CUDA, PyTorch, JAX."
+>
+  <h1>Posts</h1>
+  {
+    years.length === 0 ? (
+      <p class="muted">No posts yet.</p>
+    ) : (
+      years.map((year) => (
+        <section>
+          <h2>{year}</h2>
+          <PostList posts={byYear.get(year)!} />
+        </section>
+      ))
+    )
+  }
+</Base>

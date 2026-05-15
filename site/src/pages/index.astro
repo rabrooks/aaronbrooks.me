@@ -1,0 +1,54 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import PostList from '../components/PostList.astro';
+
+const posts = (await getCollection('posts', ({ data }) => !data.draft)).sort(
+  (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf(),
+);
+
+const recent = posts.slice(0, 8);
+---
+
+<Base title="Aaron Brooks">
+  <section class="hero">
+    <h1>Aaron Brooks</h1>
+    <p>
+      I design end-to-end AI systems &mdash; training infrastructure, LLM
+      platforms, and CUDA-level optimization. Notes from production.
+    </p>
+  </section>
+
+  <section>
+    <h2>Recent</h2>
+    {
+      recent.length === 0 ? (
+        <p class="muted">No posts yet — drafts are hidden in production builds.</p>
+      ) : (
+        <PostList posts={recent} />
+      )
+    }
+    {
+      posts.length > recent.length && (
+        <p class="more">
+          <a href="/posts/">all posts &rarr;</a>
+        </p>
+      )
+    }
+  </section>
+</Base>
+
+<style>
+  .hero h1 {
+    margin-top: 0.5rem;
+    font-size: 2rem;
+  }
+  .hero p {
+    color: var(--muted);
+    max-width: 56ch;
+  }
+  .more {
+    margin-top: 1.5rem;
+    font-size: 0.95rem;
+  }
+</style>

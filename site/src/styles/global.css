@@ -1,0 +1,172 @@
+:root {
+  --bg: #ffffff;
+  --fg: #1a1a1a;
+  --muted: #6a6a6a;
+  --rule: #e6e6e6;
+  --link: #0a5fb4;
+  --link-hover: #083f78;
+  --code-bg: #f6f8fa;
+  --selection: #ffd54a;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", "JetBrains Mono", monospace;
+  --measure: 68ch;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161616;
+    --fg: #e8e8e8;
+    --muted: #8a8a8a;
+    --rule: #2a2a2a;
+    --link: #6cb6ff;
+    --link-hover: #a6d2ff;
+    --code-bg: #1f1f1f;
+    --selection: #b58900;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #161616;
+  --fg: #e8e8e8;
+  --muted: #8a8a8a;
+  --rule: #2a2a2a;
+  --link: #6cb6ff;
+  --link-hover: #a6d2ff;
+  --code-bg: #1f1f1f;
+  --selection: #b58900;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+::selection {
+  background: var(--selection);
+  color: #000;
+}
+
+main {
+  flex: 1;
+  max-width: var(--measure);
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 4rem;
+  width: 100%;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 80ms ease;
+}
+
+a:hover {
+  color: var(--link-hover);
+  border-bottom-color: currentColor;
+}
+
+h1, h2, h3, h4 {
+  line-height: 1.25;
+  margin: 2.5rem 0 1rem;
+  font-weight: 600;
+}
+
+h1 { font-size: 1.7rem; }
+h2 { font-size: 1.3rem; margin-top: 3rem; }
+h3 { font-size: 1.1rem; }
+
+p, ul, ol, blockquote {
+  margin: 1rem 0;
+}
+
+ul, ol {
+  padding-left: 1.5rem;
+}
+
+blockquote {
+  border-left: 3px solid var(--rule);
+  padding-left: 1rem;
+  color: var(--muted);
+  margin-left: 0;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 2.5rem 0;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--code-bg);
+  padding: 0.15em 0.35em;
+  border-radius: 3px;
+}
+
+pre {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.55;
+  padding: 1rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 1.5rem 0;
+}
+
+pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+/* Shiki dual themes: light by default, dark when data-theme="dark" or
+   (system dark AND user hasn't pinned light) */
+html[data-theme="dark"] .astro-code,
+html[data-theme="dark"] .astro-code span {
+  color: var(--shiki-dark);
+  background-color: var(--shiki-dark-bg);
+  font-style: var(--shiki-dark-font-style);
+  font-weight: var(--shiki-dark-font-weight);
+  text-decoration: var(--shiki-dark-text-decoration);
+}
+
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) .astro-code,
+  html:not([data-theme="light"]) .astro-code span {
+    color: var(--shiki-dark);
+    background-color: var(--shiki-dark-bg);
+    font-style: var(--shiki-dark-font-style);
+    font-weight: var(--shiki-dark-font-weight);
+    text-decoration: var(--shiki-dark-text-decoration);
+  }
+}
+
+img, svg, video {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.muted { color: var(--muted); }
+.mono { font-family: var(--font-mono); }

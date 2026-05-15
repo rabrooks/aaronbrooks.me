@@ -1,0 +1,46 @@
+---
+const year = new Date().getFullYear();
+const socials = [
+  { href: 'https://github.com/rabrooks', label: 'github' },
+  { href: 'https://www.linkedin.com/in/aaron-brooks-atx/', label: 'linkedin' },
+  { href: 'https://huggingface.co/doublea322', label: 'hugging face' },
+];
+---
+
+<footer>
+  <div class="inner">
+    <div class="links">
+      {socials.map((s) => <a href={s.href} rel="me noopener">{s.label}</a>)}
+    </div>
+    <div class="copy">&copy; {year} Aaron Brooks</div>
+  </div>
+</footer>
+
+<style>
+  footer {
+    border-top: 1px solid var(--rule);
+    font-size: 0.9rem;
+    color: var(--muted);
+  }
+  .inner {
+    max-width: var(--measure);
+    margin: 0 auto;
+    padding: 1.5rem 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .links {
+    display: flex;
+    gap: 1.25rem;
+    flex-wrap: wrap;
+  }
+  .links a {
+    color: var(--muted);
+    border-bottom: none;
+  }
+  .links a:hover {
+    color: var(--fg);
+  }
+</style>

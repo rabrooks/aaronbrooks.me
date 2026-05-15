@@ -1,0 +1,118 @@
+---
+const nav = [
+  { href: '/', label: 'home' },
+  { href: '/posts/', label: 'posts' },
+  { href: '/about/', label: 'about' },
+  { href: '/rss.xml', label: 'rss' },
+];
+const path = Astro.url.pathname;
+---
+
+<header>
+  <div class="inner">
+    <a class="brand" href="/">aaron brooks</a>
+    <nav>
+      {
+        nav.map((item) => (
+          <a
+            href={item.href}
+            class:list={[{ active: path === item.href || (item.href !== '/' && path.startsWith(item.href)) }]}
+          >
+            {item.label}
+          </a>
+        ))
+      }
+      <button id="theme-toggle" type="button" aria-label="Toggle color theme" title="Toggle color theme">
+        <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+        </svg>
+        <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+        </svg>
+      </button>
+    </nav>
+  </div>
+</header>
+
+<script is:inline>
+  document.getElementById('theme-toggle')?.addEventListener('click', () => {
+    const root = document.documentElement;
+    const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const current = root.dataset.theme || (systemDark ? 'dark' : 'light');
+    const next = current === 'dark' ? 'light' : 'dark';
+    root.dataset.theme = next;
+    try { localStorage.setItem('theme', next); } catch (_) {}
+  });
+</script>
+
+<style>
+  header {
+    border-bottom: 1px solid var(--rule);
+  }
+  .inner {
+    max-width: var(--measure);
+    margin: 0 auto;
+    padding: 1.25rem 1.25rem;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .brand {
+    font-weight: 600;
+    color: var(--fg);
+    border-bottom: none;
+  }
+  .brand:hover {
+    color: var(--fg);
+  }
+  nav {
+    display: flex;
+    gap: 1.25rem;
+    align-items: center;
+    font-size: 0.95rem;
+  }
+  nav a {
+    color: var(--muted);
+    border-bottom: none;
+  }
+  nav a:hover,
+  nav a.active {
+    color: var(--fg);
+  }
+
+  #theme-toggle {
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+    padding: 4px;
+    margin: 0;
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    line-height: 0;
+    border-radius: 4px;
+  }
+  #theme-toggle:hover {
+    color: var(--fg);
+  }
+  #theme-toggle:focus-visible {
+    outline: 2px solid var(--link);
+    outline-offset: 2px;
+  }
+
+  /* Default: show moon (light mode visible → click to go dark) */
+  #theme-toggle .icon-sun { display: none; }
+  #theme-toggle .icon-moon { display: inline; }
+
+  /* In dark mode (manual or system): show sun */
+  :global(html[data-theme="dark"]) #theme-toggle .icon-sun { display: inline; }
+  :global(html[data-theme="dark"]) #theme-toggle .icon-moon { display: none; }
+
+  @media (prefers-color-scheme: dark) {
+    :global(html:not([data-theme="light"])) #theme-toggle .icon-sun { display: inline; }
+    :global(html:not([data-theme="light"])) #theme-toggle .icon-moon { display: none; }
+  }
+</style>

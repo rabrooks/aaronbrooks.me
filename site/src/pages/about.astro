@@ -1,0 +1,69 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base
+  title="About"
+  description="Aaron Brooks — AI systems engineer working on training infrastructure, LLM platforms, and CUDA-level optimization."
+>
+  <h1>About</h1>
+
+  <p>
+    Hi, I'm Aaron. I design end-to-end AI systems &mdash; data pipelines,
+    feature platforms, model training, evaluation, and inference &mdash; with
+    a focus on production-hardened, performance-critical systems.
+  </p>
+
+  <p>
+    Recent work has been on LLM systems and training infrastructure:
+    RLHF-style training and reasoning-model experiments, GPU/CUDA optimization
+    for training and inference, agentic workflows and multi-step reasoning,
+    and distributed compute with Ray.
+  </p>
+
+  <p>
+    Alongside that, I continue to architect large-scale real-time and batch
+    systems where latency, throughput, and cost have to be balanced under
+    load, in production, with people depending on the answer.
+  </p>
+
+  <h2>What I'm interested in</h2>
+
+  <ul>
+    <li>LLM systems at the intersection of distributed infrastructure</li>
+    <li>Training efficiency and large-scale compute optimization</li>
+    <li>Low-latency systems &mdash; long-term, financial and trading infrastructure</li>
+  </ul>
+
+  <p>
+    I work best in principal-level roles where I can own systems end-to-end,
+    drive the architecture, and build platforms that make real-world AI work
+    at scale.
+  </p>
+
+  <h2>Reach me</h2>
+
+  <ul class="contact">
+    <li>LinkedIn &mdash; <a href="https://www.linkedin.com/in/aaron-brooks-atx/" rel="me">/in/aaron-brooks-atx</a></li>
+    <li>GitHub &mdash; <a href="https://github.com/rabrooks" rel="me">@rabrooks</a></li>
+    <li>Hugging Face &mdash; <a href="https://huggingface.co/doublea322" rel="me">@doublea322</a></li>
+  </ul>
+
+  <hr />
+
+  <p class="muted">
+    Built with <a href="https://astro.build">Astro</a>; hosted on AWS
+    (S3 + CloudFront). Source on
+    <a href="https://github.com/rabrooks">GitHub</a>.
+  </p>
+</Base>
+
+<style>
+  .contact {
+    list-style: none;
+    padding: 0;
+  }
+  .contact li {
+    padding: 0.15rem 0;
+  }
+</style>

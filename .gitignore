@@ -1,0 +1,34 @@
+# Node / Astro
+node_modules/
+.astro/
+dist/
+.cache/
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# Terraform
+# Note: .terraform.lock.hcl is intentionally NOT ignored — commit it so
+# everyone uses the same provider versions.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+terraform.tfplan

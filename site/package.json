@@ -1,0 +1,25 @@
+{
+  "name": "site",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "packageManager": "npm@11.14.1",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/mdx": "5.0.6",
+    "@astrojs/rss": "4.0.18",
+    "@astrojs/sitemap": "3.7.2",
+    "astro": "^6.3.3",
+    "katex": "0.16.46",
+    "rehype-katex": "7.0.1",
+    "remark-math": "6.0.0"
+  }
+}
