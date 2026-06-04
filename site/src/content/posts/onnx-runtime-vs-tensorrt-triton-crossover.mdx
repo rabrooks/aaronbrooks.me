@@ -1,0 +1,213 @@
+---
+title: "ONNX Runtime vs. TensorRT in Triton: Where the Crossover Actually Is"
+description: "TensorRT is faster — until the engine-build tax, version brittleness, and a 10% gap say it isn't. The crossover point, measured."
+pubDate: 2026-06-04
+tags: ["triton", "onnx", "tensorrt", "inference", "performance"]
+draft: false
+---
+
+On **[model name]**, served through Triton on **[GPU]**, ONNX Runtime's CUDA
+execution provider stayed within **[X%]** of TensorRT all the way through batch
+size **[N]** — while skipping a **[M-minute]** engine build and the deployment
+brittleness that comes with a serialized TensorRT plan.
+
+TensorRT did pull away. Just not everywhere. In our run the crossover sat at
+**[batch size / sequence length / concurrency]**.
+
+| Backend | Batch | p50 latency | p99 latency | Throughput | Notes |
+|---|---:|---:|---:|---:|---|
+| ONNX Runtime CUDA EP | 1 | [x ms] | [x ms] | [x req/s] | No engine build |
+| TensorRT | 1 | [x ms] | [x ms] | [x req/s] | Engine build: [x min] |
+| ONNX Runtime CUDA EP | 8 | [x ms] | [x ms] | [x req/s] | Within [x%] |
+| TensorRT | 8 | [x ms] | [x ms] | [x req/s] | Starts to separate |
+| ONNX Runtime CUDA EP | 32 | [x ms] | [x ms] | [x req/s] | Throughput-bound |
+| TensorRT | 32 | [x ms] | [x ms] | [x req/s] | Clear winner |
+
+"Which backend is faster?" is the wrong question. TensorRT is faster. The useful
+question is where it gets faster by *enough* to pay for itself.
+
+## The setup
+
+The model was **[BERT-base / ViT-B/16 / your model]**. I picked it because it
+looks like the inference path we actually care about in production: roughly fixed
+shapes, GPU-bound execution, and enough tensor work that the backend choice
+shows up in the numbers.
+
+The environment was pinned. TensorRT performance moves between versions, so this
+is not optional:
+
+```text
+GPU: [A10G / L4 / A100 / H100]
+Triton: [version]
+CUDA: [version]
+cuDNN: [version]
+TensorRT: [version]
+ONNX Runtime: [version]
+Precision: fp16
+```
+
+Both backends got the same Triton settings wherever it was possible: same input
+shapes, same dynamic batching policy, same instance count, same client workload.
+The point was to change the backend and nothing else.
+
+ONNX Runtime, on the CUDA EP:
+
+```protobuf
+platform: "onnxruntime_onnx"
+
+instance_group [
+  {
+    kind: KIND_GPU
+    count: 1
+  }
+]
+
+dynamic_batching {
+  preferred_batch_size: [ 4, 8, 16, 32 ]
+  max_queue_delay_microseconds: [x]
+}
+```
+
+TensorRT, from a prebuilt plan:
+
+```protobuf
+platform: "tensorrt_plan"
+
+instance_group [
+  {
+    kind: KIND_GPU
+    count: 1
+  }
+]
+
+dynamic_batching {
+  preferred_batch_size: [ 4, 8, 16, 32 ]
+  max_queue_delay_microseconds: [x]
+}
+```
+
+Numbers came from `perf_analyzer` with a concurrency sweep:
+
+```bash
+perf_analyzer \
+  -m [model_name] \
+  -i grpc \
+  --concurrency-range 1:64:2 \
+  --percentile=99 \
+  --measurement-mode=time_windows
+```
+
+Warm latency and throughput were measured apart from cold start. TensorRT's
+engine build sat outside the hot path. It did not sit outside the accounting.
+
+## The curve
+
+The answer was not "TensorRT wins." It was not "ONNX Runtime is good enough"
+either. It depended entirely on where the model was operating.
+
+At small batch sizes, ONNX Runtime stayed close:
+
+```text
+Batch 1:  TensorRT was [x%] faster
+Batch 4:  TensorRT was [x%] faster
+Batch 8:  TensorRT was [x%] faster
+```
+
+That gap was not free. It was also not large enough to justify standing up a
+separate TensorRT build pipeline on its own.
+
+At larger batches, the story changed:
+
+```text
+Batch 16: TensorRT was [x%] faster
+Batch 32: TensorRT was [x%] faster
+Batch 64: TensorRT was [x%] faster
+```
+
+This is where TensorRT does what TensorRT is for: take a stable, optimized shape
+and squeeze more out of the GPU.
+
+The p99 curve is the one that matters for a service. For latency-bound traffic,
+the gap between backends was smaller than the gap in operational cost. For
+throughput-bound traffic, TensorRT's lead got a lot easier to justify.
+
+## The tax TensorRT hides
+
+The latency chart does not show the whole bill.
+
+TensorRT needs an engine build:
+
+```text
+Engine build time: [x minutes]
+Engine size: [x MB]
+Optimization profiles: [list]
+```
+
+That matters because the engine is not "the model." It is bound to the TensorRT
+version, the CUDA stack, the GPU architecture, and the optimization profiles it
+was built with. Which buys you a few standing costs:
+
+- a build step before every deployment
+- new optimization profiles or new engines when shapes change
+- version upgrades that can invalidate old assumptions
+- harder debugging once the model is a serialized engine
+- backend work when an op is unsupported or awkward
+
+None of that makes TensorRT bad. It means TensorRT has to win by enough to pay
+for the machinery around it.
+
+## The decision rule
+
+The rule I would take from this benchmark:
+
+| Situation | Pick |
+|---|---|
+| Batch 1–8, tight iteration loop, small backend gap | ONNX Runtime CUDA EP |
+| Latency-sensitive service where p99 beats max throughput | Usually ONNX Runtime first |
+| Stable shapes, high concurrency, throughput-bound | TensorRT |
+| You already run TensorRT build/test/deploy infra | TensorRT gets easier to justify |
+| Shapes or ops still changing often | ONNX Runtime until the model settles |
+
+For this model, TensorRT became clearly worth it at **[crossover point]**.
+
+Below that point, ONNX Runtime was close enough that simplicity won. Above it,
+the throughput lead was big enough to pay the engine-build tax without
+complaint.
+
+## Appendix: commands
+
+ONNX Runtime run:
+
+```bash
+perf_analyzer \
+  -m [onnxruntime_model_name] \
+  -i grpc \
+  --concurrency-range 1:64:2 \
+  --percentile=99
+```
+
+TensorRT run:
+
+```bash
+perf_analyzer \
+  -m [tensorrt_model_name] \
+  -i grpc \
+  --concurrency-range 1:64:2 \
+  --percentile=99
+```
+
+Engine build:
+
+```bash
+trtexec \
+  --onnx=model.onnx \
+  --saveEngine=model.plan \
+  --fp16 \
+  --minShapes=input:[shape] \
+  --optShapes=input:[shape] \
+  --maxShapes=input:[shape]
+```
+
+TensorRT was faster. It was not automatically worth it. The question was never
+which backend tops the chart — it was where the speedup grows large enough to
+pay for everything the chart leaves out.

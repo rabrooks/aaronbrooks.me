@@ -1,0 +1,574 @@
+---
+title: "Why Our ONNX Model Was 3× Slower in Triton Than in a Local Script"
+description: "Same model, same GPU, same ORT — 3× the latency once it ran under Triton. The five suspects and the profiler trail that found the real one."
+pubDate: 2026-05-24
+tags: ["triton", "onnx", "onnxruntime", "debugging", "performance"]
+draft: false
+---
+
+A model that ran in **[X ms]** in a standalone `onnxruntime` script took
+**[3X ms]** once we served it through Triton.
+
+Same GPU. Same ONNX model. Same execution provider.
+
+The model was not the problem. The serving config was. Dynamic batching was
+adding queue delay even though we were benchmarking at concurrency 1 — paying
+for a batch that never arrived.
+
+Turn that off for the latency benchmark and Triton dropped back to **[Y ms]**,
+close enough to the local baseline that the rest was ordinary request overhead.
+
+That is the punchline. The rest of this is the trail: five suspects, what each
+one looks like in a profiler, and why the obvious ones were not guilty.
+
+## Match the measurement before you trust it
+
+The first way to waste an afternoon here is to compare two numbers that are not
+measuring the same thing.
+
+Our local script looked innocent:
+
+```python
+import time
+import onnxruntime as ort
+
+session = ort.InferenceSession(
+    "model.onnx",
+    providers=["CUDAExecutionProvider"],
+)
+
+for _ in range(20):
+    session.run(None, inputs)
+
+latencies = []
+
+for _ in range(100):
+    start = time.perf_counter()
+    session.run(None, inputs)
+    end = time.perf_counter()
+    latencies.append((end - start) * 1000)
+
+print(sum(latencies) / len(latencies))
+```
+
+It is also lying. Much of the GPU work is asynchronous from the host's point of
+view. Time only the Python call boundary and you may not be timing the work at
+all.
+
+So before trusting the local number, we made the script honest:
+
+```python
+import time
+import numpy as np
+import onnxruntime as ort
+
+session_options = ort.SessionOptions()
+session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+
+session = ort.InferenceSession(
+    "model.onnx",
+    sess_options=session_options,
+    providers=["CUDAExecutionProvider"],
+)
+
+# Warmup
+for _ in range(50):
+    session.run(None, inputs)
+
+latencies = []
+
+for _ in range(200):
+    start = time.perf_counter()
+    session.run(None, inputs)
+
+    # Replace this with the synchronization mechanism appropriate for your setup.
+    # For example, synchronize via torch.cuda.synchronize() if tensors are flowing
+    # through PyTorch, or use profiler-visible CUDA synchronization around the run.
+    synchronize_cuda_work()
+
+    end = time.perf_counter()
+    latencies.append((end - start) * 1000)
+
+print("p50:", np.percentile(latencies, 50))
+print("p95:", np.percentile(latencies, 95))
+print("mean:", np.mean(latencies))
+```
+
+After warmup and synchronization, the local baseline was:
+
+```text
+Local ORT p50: [X ms]
+Local ORT p95: [X_p95 ms]
+```
+
+Then we measured Triton with `perf_analyzer` at concurrency 1, so it was the
+same workload:
+
+```bash
+perf_analyzer \
+  -m model_name \
+  -u localhost:8001 \
+  -i grpc \
+  --concurrency-range 1 \
+  --shape input_name:[shape]
+```
+
+That reported:
+
+```text
+Triton p50: [3X ms]
+Triton p95: [3X_p95 ms]
+```
+
+Now we had a real problem, not a noisy benchmark.
+
+## Suspect 1: thread-pool contention
+
+The first suspect was CPU thread contention.
+
+That sounds backwards for a GPU-bound model. But ONNX Runtime still leans on CPU
+threads for scheduling, graph execution, memory work, and the runtime around the
+CUDA kernels.
+
+In Triton the thread picture is not:
+
+```text
+one model = one runtime
+```
+
+It is closer to:
+
+```text
+model instances × ORT intra-op threads × ORT inter-op threads × other server work
+```
+
+Configure multiple instances and each one can spin up its own session with its
+own thread pool. The host gets oversubscribed. The failure is rarely loud — it
+shows up as jitter, timeline gaps, and a GPU waiting on a busy CPU.
+
+The knobs we made explicit were in `config.pbtxt`:
+
+```protobuf
+parameters { key: "intra_op_thread_count" value: { string_value: "1" } }
+parameters { key: "inter_op_thread_count" value: { string_value: "1" } }
+
+instance_group [
+  {
+    kind: KIND_GPU
+    count: 1
+  }
+]
+```
+
+These are top-level `parameters` in the ONNX Runtime backend, and the value
+needs the `{ string_value: ... }` wrapper. Note what they are *not*: the
+`optimization { execution_accelerators { gpu_execution_accelerator [{ name:
+"tensorrt" ... }] }}` block is a different feature — it enables the TensorRT
+execution provider *inside* ORT, not thread control. Conflating the two is an
+easy mistake. The principle here is simpler: make the instance count and thread
+counts explicit.
+
+What this looks like if it is the culprit:
+
+- high CPU utilization during supposedly GPU-bound inference
+- gaps between CUDA kernels in Nsight Systems
+- latency improving when you drop instance count or ORT thread counts
+- p95 noticeably worse than p50, from scheduling jitter
+
+What we saw:
+
+```text
+CPU utilization: [not saturated / mildly elevated]
+GPU timeline gaps: [not enough to explain 3×]
+Changing instance count/thread count delta: [small_delta ms]
+```
+
+Worth fixing. Not our 3×.
+
+## Suspect 2: missing graph optimizations
+
+Next we checked graph optimizations.
+
+Our local script turned them all the way up:
+
+```python
+session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+```
+
+Under Triton, the runtime config is not automatically the same as your local
+script. It is easy to put:
+
+```text
+local script with ORT_ENABLE_ALL
+```
+
+next to:
+
+```text
+Triton using default backend/session settings
+```
+
+and believe you are comparing the same runtime.
+
+So we made the level explicit in the model config:
+
+```protobuf
+optimization {
+  graph: {
+    level: 1
+  }
+}
+```
+
+There is no `ORT_ENABLE_ALL` string parameter in Triton's config — that is the
+Python `onnxruntime` API, not the serving config. Triton expresses the
+optimization level as a numeric `level`, and the mapping is genuinely
+counterintuitive:
+
+| `level` | Meaning |
+|---:|---|
+| `-1` | BASIC optimizations |
+| `1` | basic **+ extended** (fusions) — the most-optimized setting |
+| `2` | all optimizations **disabled** |
+
+So `level: 2` is a trap: it does not mean "maximum optimization," it turns
+optimization off. The most-optimized setting is `level: 1`. The important part
+is that the local script and the Triton config use the *same* level — and that
+you do not assume `2` means "more."
+
+What this looks like if it is the culprit:
+
+- a different fused-node count between the local graph and the Triton graph
+- more kernels launched under Triton
+- extra transpose, cast, reshape, or normalization ops
+- a clear latency drop once both sides use the same level
+
+What we saw:
+
+```text
+Local optimized graph: [summary]
+Triton optimized graph: [summary]
+Delta after forcing optimization level: [small_delta ms]
+```
+
+Again: worth making explicit. Not the root cause.
+
+## Suspect 3: host/device copies
+
+The third suspect was data movement.
+
+A local benchmark can quietly flatter itself. It might hand the model
+GPU-resident tensors, or use I/O binding, while Triton receives CPU buffers and
+copies host-to-device on every request.
+
+The compute can be fast while the request path is not:
+
+```text
+client CPU buffer
+  -> Triton request buffer
+  -> GPU input buffer
+  -> model execution
+  -> GPU output buffer
+  -> Triton response buffer
+  -> client CPU buffer
+```
+
+For small and medium models, those copies can dominate.
+
+This is a case where averages hide and a timeline tells the truth. In Nsight
+Systems we looked for:
+
+```text
+Memcpy HtoD
+Memcpy DtoH
+cudaMemcpyAsync
+cudaStreamSynchronize
+```
+
+around each inference.
+
+What this looks like if it is the culprit:
+
+- large H2D/D2H copies bracketing each inference
+- GPU kernels taking about the same time as local
+- request latency inflated by transfer, not compute
+- latency improving with CUDA shared memory or device-aware input handling
+
+The local script used:
+
+```python
+io_binding = session.io_binding()
+
+# Bind input/output buffers explicitly when using device memory.
+# Details depend on how input arrays are allocated.
+```
+
+On the Triton side the equivalent fix is CUDA shared memory, or otherwise not
+bouncing the tensor CPU-to-GPU-to-CPU in the benchmark client.
+
+What we saw:
+
+```text
+H2D copy time: [copy_ms]
+D2H copy time: [copy_ms]
+Total copy overhead: [copy_total_ms]
+```
+
+The copies were real. They did not add up to 3×. The compute region itself was
+not 3× slower.
+
+Not the main culprit either.
+
+## Suspect 4: fp16 was not actually fp16
+
+The fourth suspect was precision.
+
+This one is sneaky, because "the model is fp16" is not the same claim as "the
+request path is fp16 end to end."
+
+A model can hold fp16 weights and still pick up extra casts if Triton feeds it
+fp32 inputs. Some ops may even fall back to fp32 depending on provider support
+and graph shape.
+
+The question was not:
+
+```text
+Did we export an fp16 model?
+```
+
+It was:
+
+```text
+Are the hot ops actually running in fp16 under Triton?
+```
+
+We checked the dtype at every hop:
+
+- Triton model input dtype in `config.pbtxt`
+- client request dtype
+- ONNX graph input dtype
+- runtime profiler output
+- any unexpected `Cast` nodes near the input
+
+The config should not claim fp32 if the input is meant to be fp16:
+
+```protobuf
+input [
+  {
+    name: "input"
+    data_type: TYPE_FP16
+    dims: [ ... ]
+  }
+]
+```
+
+And the client should not quietly send fp32:
+
+```python
+inputs = inputs.astype(np.float16)
+```
+
+What this looks like if it is the culprit:
+
+- extra `Cast` ops in the profiler
+- different op dtypes between local and Triton
+- higher memory-bandwidth pressure
+- latency dropping once client dtype and model dtype match
+
+What we saw:
+
+```text
+Input dtype local: [dtype]
+Input dtype Triton request: [dtype]
+Unexpected Cast ops: [yes/no]
+Delta after dtype fix: [small_delta ms]
+```
+
+Another good cleanup. Still not the missing time.
+
+## Suspect 5: dynamic batching queue delay
+
+The profiler trail finally pointed away from ONNX Runtime and at Triton's
+scheduler.
+
+The model was not spending 3× longer inside the kernels. It was spending the
+extra time *before* it got to them.
+
+Our config had dynamic batching on:
+
+```protobuf
+dynamic_batching {
+  preferred_batch_size: [ 4, 8 ]
+  max_queue_delay_microseconds: [QUEUE_DELAY_US]
+}
+```
+
+That is a reasonable production setting. It lets Triton hold a request for a
+moment so it can combine several into one larger batch.
+
+But our benchmark was concurrency 1.
+
+There was no second request to batch with.
+
+So every request sat in the queue until Triton gave up waiting and ran it alone.
+The benchmark was paying the batching tax and collecting none of the benefit.
+
+The profiler made it obvious:
+
+```text
+Request received
+  -> scheduler queue wait: [queue_wait_ms]
+  -> model execution: [model_exec_ms]
+  -> response send
+```
+
+The ONNX Runtime execution time was close to the local script. The lost time was
+above it, in the scheduler.
+
+The fix for the latency benchmark was small: drop dynamic batching, or set the
+queue delay to zero, for the latency-sensitive config.
+
+```protobuf
+# For latency benchmark / single-request serving:
+# Remove dynamic_batching entirely.
+```
+
+Or:
+
+```protobuf
+dynamic_batching {
+  max_queue_delay_microseconds: 0
+}
+```
+
+After that change:
+
+```text
+Local ORT p50:        [X ms]
+Triton before p50:    [3X ms]
+Triton after p50:     [Y ms]
+```
+
+The model did not get faster. We just stopped asking Triton to wait for a batch
+that was never coming.
+
+## Why this was easy to miss
+
+Dynamic batching is not the villain. It is one of the main reasons to put a
+serving system in front of a model at all.
+
+The mistake was using one config for two different jobs:
+
+```text
+Goal A: maximize throughput under concurrent load
+Goal B: measure single-request latency
+```
+
+Those are not the same benchmark.
+
+For throughput, the queue delay can pay for itself many times over at
+concurrency 16, 32, or 64. For latency at concurrency 1, it is pure overhead.
+
+It also explains why staring at ONNX Runtime got us nowhere. ORT was not the
+bottleneck. The compute region was fine. The lost time lived in the scheduling
+path wrapped around it.
+
+## What I would check first next time
+
+The checklist I wish we had started with.
+
+### 1. Make the local timer honest
+
+Warm up. Use enough iterations. Report p50 and p95, not just the mean. Above all,
+synchronize GPU work before you stop the clock.
+
+Bad:
+
+```python
+start = time.perf_counter()
+session.run(None, inputs)
+end = time.perf_counter()
+```
+
+Better:
+
+```python
+start = time.perf_counter()
+session.run(None, inputs)
+synchronize_cuda_work()
+end = time.perf_counter()
+```
+
+### 2. Match concurrency to the question
+
+For single-request latency:
+
+```bash
+perf_analyzer --concurrency-range 1
+```
+
+For throughput, test the concurrency you actually expect. Do not read a
+concurrency-1 number off a throughput-tuned batching config and call it "model
+latency."
+
+### 3. Separate queue time from execution time
+
+Look at Triton's request breakdown, traces, or profiler output. You want to know
+whether the time is in:
+
+```text
+queue
+compute input
+model execution
+compute output
+response
+```
+
+Those point at very different fixes.
+
+### 4. Check instance count and ORT thread math
+
+Make it explicit:
+
+```protobuf
+instance_group [
+  {
+    kind: KIND_GPU
+    count: 1
+  }
+]
+```
+
+Then set ORT intra-op and inter-op thread counts on purpose. More instances and
+more threads are not automatically faster.
+
+### 5. Confirm graph optimization settings
+
+Do not assume the local script and the Triton backend share session options.
+Set the optimization level explicitly in both places, and remember that under
+Triton `level: 1` is the most-optimized setting, not `2`.
+
+### 6. Check device placement and copies
+
+If local uses GPU-resident buffers and Triton receives CPU buffers, you are not
+timing the same path. Use Nsight Systems or Triton traces to find the H2D and
+D2H copies around each request.
+
+### 7. Verify dtype end to end
+
+Check the ONNX graph input dtype, the Triton config dtype, and the client
+request dtype. An fp16 model fed fp32 inputs is not an fp16 serving path.
+
+## Same model is not the same path
+
+When a model is slower under Triton than in a local script, it is tempting to
+blame Triton, ONNX Runtime, or the GPU.
+
+But "same model, same GPU, same EP" does not mean "same execution path."
+
+In our case the ONNX model was not 3× slower. ONNX Runtime was not 3× slower.
+The kernels were not 3× slower. We had turned on dynamic batching and then
+measured concurrency-1 latency, and Triton did exactly what we told it to:
+waited for a batch.
+
+Right config. Wrong number to point it at.
