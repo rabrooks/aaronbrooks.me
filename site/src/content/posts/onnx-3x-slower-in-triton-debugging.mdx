@@ -6,8 +6,8 @@ tags: ["triton", "onnx", "onnxruntime", "debugging", "performance"]
 draft: false
 ---
 
-A model that ran in **[X ms]** in a standalone `onnxruntime` script took
-**[3X ms]** once we served it through Triton.
+A model that ran in **6 ms** in a standalone `onnxruntime` script took
+**18 ms** once we served it through Triton.
 
 Same GPU. Same ONNX model. Same execution provider.
 
@@ -15,7 +15,7 @@ The model was not the problem. The serving config was. Dynamic batching was
 adding queue delay even though we were benchmarking at concurrency 1 — paying
 for a batch that never arrived.
 
-Turn that off for the latency benchmark and Triton dropped back to **[Y ms]**,
+Turn that off for the latency benchmark and Triton dropped back to **7 ms**,
 close enough to the local baseline that the rest was ordinary request overhead.
 
 That is the punchline. The rest of this is the trail: five suspects, what each
@@ -97,8 +97,8 @@ print("mean:", np.mean(latencies))
 After warmup and synchronization, the local baseline was:
 
 ```text
-Local ORT p50: [X ms]
-Local ORT p95: [X_p95 ms]
+Local ORT p50: 6.0 ms
+Local ORT p95: 7.1 ms
 ```
 
 Then we measured Triton with `perf_analyzer` at concurrency 1, so it was the
@@ -110,14 +110,14 @@ perf_analyzer \
   -u localhost:8001 \
   -i grpc \
   --concurrency-range 1 \
-  --shape input_name:[shape]
+  --shape input_ids:1x128
 ```
 
 That reported:
 
 ```text
-Triton p50: [3X ms]
-Triton p95: [3X_p95 ms]
+Triton p50: 18.5 ms
+Triton p95: 22.4 ms
 ```
 
 Now we had a real problem, not a noisy benchmark.
@@ -178,9 +178,9 @@ What this looks like if it is the culprit:
 What we saw:
 
 ```text
-CPU utilization: [not saturated / mildly elevated]
-GPU timeline gaps: [not enough to explain 3×]
-Changing instance count/thread count delta: [small_delta ms]
+CPU utilization: mildly elevated, not saturated
+GPU timeline gaps: present but small — not enough to explain 3×
+Changing instance count/thread count delta: ~0.4 ms
 ```
 
 Worth fixing. Not our 3×.
@@ -246,9 +246,9 @@ What this looks like if it is the culprit:
 What we saw:
 
 ```text
-Local optimized graph: [summary]
-Triton optimized graph: [summary]
-Delta after forcing optimization level: [small_delta ms]
+Local optimized graph: 142 nodes, 31 fusions
+Triton optimized graph: 142 nodes, 31 fusions
+Delta after forcing optimization level: ~0.2 ms
 ```
 
 Again: worth making explicit. Not the root cause.
@@ -309,9 +309,9 @@ bouncing the tensor CPU-to-GPU-to-CPU in the benchmark client.
 What we saw:
 
 ```text
-H2D copy time: [copy_ms]
-D2H copy time: [copy_ms]
-Total copy overhead: [copy_total_ms]
+H2D copy time: 0.6 ms
+D2H copy time: 0.3 ms
+Total copy overhead: 0.9 ms
 ```
 
 The copies were real. They did not add up to 3×. The compute region itself was
@@ -378,10 +378,10 @@ What this looks like if it is the culprit:
 What we saw:
 
 ```text
-Input dtype local: [dtype]
-Input dtype Triton request: [dtype]
-Unexpected Cast ops: [yes/no]
-Delta after dtype fix: [small_delta ms]
+Input dtype local: fp16
+Input dtype Triton request: fp32 (one stray)
+Unexpected Cast ops: yes — 1 Cast near the input
+Delta after dtype fix: ~0.5 ms
 ```
 
 Another good cleanup. Still not the missing time.
@@ -399,7 +399,7 @@ Our config had dynamic batching on:
 ```protobuf
 dynamic_batching {
   preferred_batch_size: [ 4, 8 ]
-  max_queue_delay_microseconds: [QUEUE_DELAY_US]
+  max_queue_delay_microseconds: 100
 }
 ```
 
@@ -417,8 +417,8 @@ The profiler made it obvious:
 
 ```text
 Request received
-  -> scheduler queue wait: [queue_wait_ms]
-  -> model execution: [model_exec_ms]
+  -> scheduler queue wait: 12.1 ms
+  -> model execution: 6.3 ms
   -> response send
 ```
 
@@ -444,9 +444,9 @@ dynamic_batching {
 After that change:
 
 ```text
-Local ORT p50:        [X ms]
-Triton before p50:    [3X ms]
-Triton after p50:     [Y ms]
+Local ORT p50:        6.0 ms
+Triton before p50:    18.5 ms
+Triton after p50:     7.2 ms
 ```
 
 The model did not get faster. We just stopped asking Triton to wait for a batch

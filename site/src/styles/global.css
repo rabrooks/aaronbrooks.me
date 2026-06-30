@@ -6,6 +6,8 @@
   --link: #0a5fb4;
   --link-hover: #083f78;
   --code-bg: #f6f8fa;
+  --code-border: #e3e7eb;
+  --table-stripe: #fafbfc;
   --selection: #ffd54a;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto,
     "Helvetica Neue", Arial, sans-serif;
@@ -23,6 +25,8 @@
     --link: #6cb6ff;
     --link-hover: #a6d2ff;
     --code-bg: #1f1f1f;
+    --code-border: #30363d;
+    --table-stripe: #1c1c1c;
     --selection: #b58900;
   }
 }
@@ -35,6 +39,8 @@
   --link: #6cb6ff;
   --link-hover: #a6d2ff;
   --code-bg: #1f1f1f;
+  --code-border: #30363d;
+  --table-stripe: #1c1c1c;
   --selection: #b58900;
 }
 
@@ -121,14 +127,16 @@ code {
   background: var(--code-bg);
   padding: 0.15em 0.35em;
   border-radius: 3px;
+  border: 1px solid var(--code-border);
 }
 
 pre {
   font-family: var(--font-mono);
   font-size: 0.85em;
   line-height: 1.55;
-  padding: 1rem;
+  padding: 1rem 1.1rem;
   border-radius: 6px;
+  border: 1px solid var(--code-border);
   overflow-x: auto;
   margin: 1.5rem 0;
 }
@@ -137,28 +145,68 @@ pre code {
   background: transparent;
   padding: 0;
   border-radius: 0;
+  border: 0;
   font-size: inherit;
 }
 
+/* Tables: borders, padding, tabular figures, horizontal scroll on overflow */
+table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 1.75rem 0;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+
+th, td {
+  padding: 0.5rem 0.8rem;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+
+thead th {
+  font-weight: 600;
+  background: var(--code-bg);
+  border-bottom: 2px solid var(--rule);
+  white-space: nowrap;
+}
+
+tbody tr:nth-child(even) {
+  background: var(--table-stripe);
+}
+
+table code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
 /* Shiki dual themes: light by default, dark when data-theme="dark" or
-   (system dark AND user hasn't pinned light) */
+   (system dark AND user hasn't pinned light). !important is required because
+   Shiki writes the light theme as inline styles on the element, and inline
+   styles outrank external selectors. */
 html[data-theme="dark"] .astro-code,
 html[data-theme="dark"] .astro-code span {
-  color: var(--shiki-dark);
-  background-color: var(--shiki-dark-bg);
-  font-style: var(--shiki-dark-font-style);
-  font-weight: var(--shiki-dark-font-weight);
-  text-decoration: var(--shiki-dark-text-decoration);
+  color: var(--shiki-dark) !important;
+  background-color: var(--shiki-dark-bg) !important;
+  font-style: var(--shiki-dark-font-style) !important;
+  font-weight: var(--shiki-dark-font-weight) !important;
+  text-decoration: var(--shiki-dark-text-decoration) !important;
 }
 
 @media (prefers-color-scheme: dark) {
   html:not([data-theme="light"]) .astro-code,
   html:not([data-theme="light"]) .astro-code span {
-    color: var(--shiki-dark);
-    background-color: var(--shiki-dark-bg);
-    font-style: var(--shiki-dark-font-style);
-    font-weight: var(--shiki-dark-font-weight);
-    text-decoration: var(--shiki-dark-text-decoration);
+    color: var(--shiki-dark) !important;
+    background-color: var(--shiki-dark-bg) !important;
+    font-style: var(--shiki-dark-font-style) !important;
+    font-weight: var(--shiki-dark-font-weight) !important;
+    text-decoration: var(--shiki-dark-text-decoration) !important;
   }
 }
 
