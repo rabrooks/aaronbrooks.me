@@ -4,7 +4,7 @@ import Base from '../../layouts/Base.astro';
 import PostList from '../../components/PostList.astro';
 
 export async function getStaticPaths() {
-  const posts = await getCollection('posts', ({ data }) => !data.draft);
+  const posts = await getCollection('posts', ({ data }) => import.meta.env.PROD ? !data.draft : true);
   const tags = new Map<string, typeof posts>();
   for (const post of posts) {
     for (const tag of post.data.tags) {

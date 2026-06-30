@@ -3,7 +3,7 @@ import { getCollection } from 'astro:content';
 import Base from '../layouts/Base.astro';
 import PostList from '../components/PostList.astro';
 
-const posts = (await getCollection('posts', ({ data }) => !data.draft)).sort(
+const posts = (await getCollection('posts', ({ data }) => import.meta.env.PROD ? !data.draft : true)).sort(
   (a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf(),
 );
 
