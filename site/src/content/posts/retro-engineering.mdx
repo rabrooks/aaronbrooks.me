@@ -1,0 +1,236 @@
+---
+title: "Retro Engineering"
+description: "Coining a term: the practice of using state-of-the-art distributed systems to faithfully reproduce the availability and latency of software from two decades ago."
+pubDate: 2026-06-30
+tags: ["satire", "architecture"]
+draft: false
+heroImage: ../../assets/Retro-Engineering.jpg
+heroAlt: "Infographic defining Retro Engineering: a reference architecture for delivering 2006-era reliability on modern infrastructure."
+---
+
+> **Retro Engineering** (_noun_) — the practice of using state-of-the-art
+> distributed systems to intentionally reproduce the availability, latency,
+> and operational characteristics of software from two decades ago.
+
+The rest of this site is about wringing every microsecond out of an H100,
+keeping thousands of GPUs busy, and making distributed systems fail in ways
+that users never notice.
+
+This post is not that. Consider it a palate cleanser.
+
+We've spent the last fifteen years learning how to deploy globally in
+milliseconds, survive datacenter failures, recover automatically, and eliminate
+scheduled downtime. We built autoscaling, service meshes, multi-region
+replication, distributed databases, self-healing orchestration, and more
+observability than NASA had for the Apollo missions.
+
+And yet, something is missing.
+
+A certain **character**. A texture that only comes from software that might, at
+any moment, simply stop working until someone gets back from lunch.
+
+I call this **Retro Engineering**. The reference architecture above is
+affectionately known as **The Tuesday Morning Special.**
+
+---
+
+## Design goals
+
+Modern systems optimize for availability, resilience, performance, and user
+experience. Retro Engineering asks a different question.
+
+> **What if we optimized for nostalgia?**
+
+Our target user experience includes:
+
+- Scheduled downtime.
+- Loading screens that encourage reflection.
+- Deployments announced by email.
+- A support engineer saying "Works on my machine."
+- Databases that become philosophical under load.
+
+---
+
+## The principles
+
+- **Simplicity over resilience.** Every replica you don't run is a replica that
+  can't disagree with you.
+
+- **Downtime builds patience.** For the users *and* the on-call engineer.
+
+- **Single points of failure build character.** A system with no SPOF has
+  nothing left to teach us.
+
+- **Users will refresh.** This is not a bug. It is a feature with the keyboard
+  shortcut `F5`.
+
+- **Hope is a valid retry strategy.**
+
+- **It worked in 2006.** Citation: it worked in 2006.
+
+---
+
+## Capacity planning
+
+Capacity planning has become unnecessarily complicated. Our process is
+refreshingly simple.
+
+1. Estimate peak traffic.
+2. Divide it by two.
+3. Buy that many servers.
+
+If demand exceeds capacity, users are automatically enrolled in our
+**Virtual Waiting Room™**, where they can reflect on their life choices.
+
+---
+
+## Architecture decisions
+
+Some people have asked why the reference architecture intentionally avoids many
+modern best practices. The answer is simple.
+
+Those practices make things *too reliable.*
+
+### Database
+
+One database. One leader. No replicas.
+
+If the database goes down, nothing can become inconsistent.
+
+Consistency through complete unavailability.
+
+### Load balancing
+
+Traffic enters through a Global Load Balancer. It routes every request to
+us-east-1.
+
+Not because it's closest. Because that's where the server is.
+
+### Auto Scaling
+
+Modern systems automatically add capacity. Retro Engineering automatically adds
+confidence.
+
+When CPU reaches 100%, we simply assume traffic will calm down eventually.
+Historically, this has happened every single time.
+
+### Kubernetes
+
+People often ask why we're running Kubernetes. Simple: it makes architecture
+diagrams look expensive.
+
+Eventually every request reaches a VM named:
+
+`prod-db-final-v7-final-final`
+
+### Caching
+
+Static assets receive a 24-hour TTL. If you shipped a CSS fix five minutes
+ago, the cache respectfully disagrees.
+
+Eventually the cache expires. Nature heals.
+
+### Logging
+
+Logs are written to local disk, rotated daily, and deleted after seven days.
+
+If you needed those logs on day eight, you should have been more proactive.
+
+### Disaster recovery
+
+Our disaster recovery documentation is stored in the production database. This
+guarantees the documentation is always synchronized with production.
+
+---
+
+## Monitoring
+
+Our monitoring philosophy is intentionally minimalist. If users haven't emailed
+us, everything is probably fine.
+
+PagerDuty is replaced by Greg from Operations, who occasionally checks Slack.
+
+---
+
+## Change management
+
+Every deployment requires approval from:
+
+- Engineering
+- Operations
+- Security
+- Dave
+- Whoever still remembers how production works
+
+Emergency deployments are strongly discouraged. Emergencies should have been
+scheduled in advance.
+
+---
+
+## What we are proudly **not** doing
+
+No disaster recovery. No multi-region. No active/active. No distributed
+databases. No zero-downtime deployments. No chaos engineering. No feature flags.
+No canary releases. No blue/green deployments. No fun.
+
+One database to rule them all. If it's slow, close your eyes and try again.
+
+---
+
+## Scheduled downtime
+
+Every Tuesday from **8:00–11:00 A.M.**, the site is unavailable for maintenance.
+
+Not because it needs to be. Because users need something to complain about, and
+because a maintenance window is the closest thing software has to a national
+holiday.
+
+If maintenance finishes early, we wait until 11:00 anyway. Tradition matters.
+
+If the site is down outside that window, someone is almost certainly
+"working on it."
+
+---
+
+## FAQ
+
+### Why not deploy continuously?
+
+Continuous deployment removes the anticipation.
+
+### Why don't you use multi-region?
+
+If one region was good enough for us in 2006, it's good enough today.
+
+### Does this architecture scale?
+
+Horizontally? No.
+
+Emotionally? Absolutely.
+
+### Is this cloud native?
+
+Technically everything runs in the cloud. The cloud just happens to contain one
+server.
+
+---
+
+## Roadmap
+
+We're excited about several upcoming improvements.
+
+- SSL certificate expiration as a service
+- Manual failover requiring two engineers and a conference call
+- A Redis cache that occasionally remembers things
+- Scheduled DNS propagation
+- Maintenance windows for the maintenance page
+
+---
+
+## Final thought
+
+Retro Engineering isn't about going backwards. It's about honoring the classics.
+
+Modern infrastructure. Legacy experience.
+
+See you Tuesday at 8:00 A.M.
